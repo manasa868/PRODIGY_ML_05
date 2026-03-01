@@ -1,0 +1,87 @@
+import tensorflow as tf
+import tensorflow_datasets as tfds
+import numpy as np
+import matplotlib.pyplot as plt
+(ds_train, ds_test), ds_info = tfds.load(
+    'food101',
+    split=['train[:20%]', 'validation[:20%]'],
+    as_supervised=True,
+    with_info=True
+)
+
+num_classes = ds_info.features['label'].num_classes
+IMG_SIZE = 224
+
+def preprocess(image, label):
+    image = tf.image.resize(image, (IMG_SIZE, IMG_SIZE))
+    image = image / 255.0
+    return image, label
+
+ds_train = ds_train.map(preprocess).batch(32).prefetch(1)
+ds_test = ds_test.map(preprocess).batch(32).prefetch(1)
+base_model = tf.keras.applications.MobileNetV2(
+    input_shape=(224,224,3),
+    include_top=False,
+    weights='imagenet'
+)
+
+base_model.trainable = False
+
+model = tf.keras.Sequential([
+    base_model,
+    tf.keras.layers.GlobalAveragePooling2D(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(num_classes, activation='softmax')
+])
+
+model.compile(
+    optimizer='adam',
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+model.summary()
+history = model.fit(
+    ds_train,
+    validation_data=ds_test,
+    epochs=5
+)
+calorie_dict = {
+    "pizza": 285,
+    "burger": 295,
+    "ice_cream": 207,
+    "apple_pie": 237,
+    "fried_rice": 250
+}
+class_names = ds_info.features['label'].names
+
+def predict_image(image):
+    image = tf.image.resize(image, (224,224))
+    image = image / 255.0
+    image = tf.expand_dims(image, axis=0)
+
+    prediction = model.predict(image)
+    class_index = np.argmax(prediction)
+    food_name = class_names[class_index]
+
+    calories = calorie_dict.get(food_name, "Calorie data not available")
+
+    return food_name, calories
+from google.colab import files
+uploaded = files.upload()
+import cv2
+
+# Get the actual filename from the uploaded dictionary
+# Note: If the uploaded file '._images' is not a valid image format, this error might 
+img_filename = list(uploaded.keys())[0]
+img = cv2.imread(img_filename)
+
+if img is None:
+    print(f"Error: Could not read the image file '{img_filename}'. Please ensure it is a valid image.")
+else:
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    food, cal = predict_image(img)
+
+    print("Predicted Food:", food)
+    print("Estimated Calories:", cal)
